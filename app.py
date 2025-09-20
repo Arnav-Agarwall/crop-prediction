@@ -1,10 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+import threading
+import time
 import pandas as pd
 import joblib
 import os
-
 
 # ==============================
 # Load trained model
@@ -19,7 +20,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ==============================
-# Weather API
+# Weather API function
 # ==============================
 def get_weather(city, api_key):
     url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
@@ -45,8 +46,10 @@ def predict_crop():
             return jsonify({"error": "No input data provided"}), 400
 
         # --- Weather Handling ---
-        api_key = os.environ.get("OPENWEATHER_API_KEY", "YOUR_API_KEY_HERE")
-        weather, error = get_weather(data.get("city"), api_key)
+        weather, error = None, None
+        api_key = data.get("api_key") or os.environ.get("OPENWEATHER_API_KEY")
+        if "city" in data and api_key:
+            weather, error = get_weather(data["city"], api_key)
 
         if not weather:
             # Fallback: if temperature & humidity given manually
@@ -103,6 +106,17 @@ def health():
 # ==============================
 # Run Flask on Render
 # ==============================
+def keep_alive_ping(interval=300):
+    """Periodically ping the /health endpoint to keep the server alive."""
+    while True:
+        try:
+            requests.get(f"http://localhost:{os.environ.get('PORT', 5000)}/health", timeout=5)
+        except Exception:
+            pass
+        time.sleep(interval)
+
 if __name__ == "__main__":
+    # Start keep-alive thread
+    threading.Thread(target=keep_alive_ping, args=(300,), daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
